@@ -41,20 +41,24 @@ apt-get install -y -qq --no-install-recommends \
 c_ok "Basispakete installiert."
 
 # ---------------------------------------------------------------- Node.js
+# Robuster Weg: nodesource-Repo (statt offiziellem Binary-Download).
+# Grund: Der Binary-Download von nodejs.org scheitert im CT manchmal (curl/timeouts),
+# nodesource läuft über apt und ist zuverlässiger.
 if ! command -v node >/dev/null 2>&1 || [ "$(node -v 2>/dev/null | cut -c2- | cut -d. -f1)" -lt 20 ]; then
-  c_info "Installiere Node.js $NODE_VERSION (offizielles Binary) ..."
-  ARCH="$(dpkg --print-architecture)"
-  TARBALL="node-v${NODE_VERSION}-linux-x64.tar.xz"
-  case "$ARCH" in
-    arm64|aarch64) TARBALL="node-v${NODE_VERSION}-linux-arm64.tar.xz" ;;
-  esac
-  curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/${TARBALL}" -o "/tmp/${TARBALL}"
-  mkdir -p /opt/node
-  tar -xJf "/tmp/${TARBALL}" -C /opt/node --strip-components=1
-  rm -f "/tmp/${TARBALL}"
-  ln -sf /opt/node/bin/node /usr/local/bin/node
-  ln -sf /opt/node/bin/npm  /usr/local/bin/npm
-  ln -sf /opt/node/bin/npx  /usr/local/bin/npx
+  c_info "Installiere Node.js 22 via nodesource-Repo ..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq >/dev/null 2>&1 || true
+  apt-get install -y -qq ca-certificates curl gnupg >/dev/null 2>&1 || true
+  install -d -m 0755 /etc/apt/keyrings
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+    | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg 2>/dev/null || true
+  echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+    > /etc/apt/sources.list.d/nodesource.list
+  apt-get update -qq >/dev/null 2>&1 || warn "nodesource apt update fehlgeschlagen"
+  apt-get install -y -qq nodejs >/dev/null 2>&1 || {
+    c_err "Node.js-Installation fehlgeschlagen."
+    exit 1
+  }
   c_ok "Node.js $(node -v) installiert."
 else
   c_ok "Node.js $(node -v) bereits vorhanden."
