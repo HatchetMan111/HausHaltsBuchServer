@@ -340,9 +340,13 @@ info "Suche passendes Debian-Template für $ARCH ..."
 pveam update >/dev/null 2>&1 || warn "pveam update fehlgeschlagen – fahre mit vorhandener Liste fort."
 
 # Erst: ist bereits ein passendes Template im Cache?
+# WICHTIG: pveam list liefert den vollen Pfad "local:vztmpl/NAME.tar.zst".
+# pct create braucht NUR den Dateinamen nach "local:vztmpl/".
+# Darum: Pfad auf basename reduzieren.
 TEMPLATE="$(pveam list local 2>/dev/null \
   | grep -E "debian-1[23]-standard[_-][0-9][^_]*_${ARCH}\.tar\.zst" \
-  | sort -rV | head -n1 | awk '{print $1}' || true)"
+  | sort -rV | head -n1 | awk '{print $1}' | xargs -r basename 2>/dev/null || true)"
+TEMPLATE="${TEMPLATE:-}"
 if [ -n "$TEMPLATE" ]; then
   ok "Verwendbares Template bereits im Cache: $TEMPLATE"
 else
