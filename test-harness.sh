@@ -304,15 +304,16 @@ rc=$?
 check "Template-Fallback Exit 0" '[ "$rc" -eq 0 ]'
 grep -q "manuell" "$WORK/output.log" && ok "manueller Download versucht" || bad "manueller Download nicht versucht"
 
-header "8) Storage ohne vztmpl (muss abbrechen mit klarer Meldung)"
-# storage.cfg ohne vztmpl für local -> Installer MUSS sauber abbrechen
+header "8) Storage ohne vztmpl (Installer muss trotzdem funktionieren)"
+# storage.cfg ohne vztmpl -> Installer MUSS jetzt reibungslos durchlaufen
+# (pct download lädt Template in lokalen Cache, vztmpl des Ziel-Storages egal)
 cat > "$WORK/storage.cfg" <<'EOF'
 dir local /var/lib/vz content rootdir,iso,backup
 dir local-lvm /var/lib/vz content rootdir,images
 EOF
 set +e; run_installer --id 170 >/dev/null; rc=$?; set -e
-[ "$rc" -ne 0 ] && ok "Abbruch bei fehlendem vztmpl (Exit $rc)" || bad "sollte bei fehlendem vztmpl abbrechen"
-grep -q "vztmpl" "$WORK/output.log" && ok "Diagnose nennt vztmpl" || bad "Diagnose ohne vztmpl-Hinweis"
+check "Installation ohne vztmpl Exit 0" '[ "$rc" -eq 0 ]'
+grep -q "pct create 170" "$CALLS" && ok "CT wurde erstellt (ohne vztmpl)" || bad "CT nicht erstellt"
 
 header "Ergebnis"
 printf '  %d PASS, %d FAIL\n' "$pass" "$fail"
