@@ -320,55 +320,68 @@ done
 
 # Template bereitstellen (arch-korrekt, Grube aus LastBook/Gladys)
 ARCH="$(host_arch)"
-TEMPLATE="debian-13-standard_${ARCH}.tar.zst"
+# WICHTIG (Live auf ProxSmartHome): Debian-Templates tragen Versions-Suffixe,
+# z. B. "debian-13-standard_13.6-1_amd64.tar.zst" (NICHT ohne Versionsnummer!).
+# Darum: Template DYNAMISCH aus pveam available suchen (Pattern mit Wildcard).
+TEMPLATE=""
 
-template_vorhanden() {
-  # Prüft, ob ein Template lokal im Storage-Cache liegt
-  pveam list local 2>/dev/null | grep -q "$1"
+template_suchen() {
+  # Liefert den besten verfügbaren Debian-13/12-Template-Namen für die Host-Arch.
+  # Sortiert nach Version (absteigend), neuestes zuerst.
+  pveam available 2>/dev/null \
+    | grep -E "debian-1[23]-standard[_-][0-9][^_]*_${ARCH}\.tar\.zst" \
+    | sort -rV \
+    | head -n1 \
+    | awk '{print $2}'
 }
 
-template_melden() {
-  # Meldet ein Template in pveam available (mit/ohne Versions-Suffix)
-  pveam available 2>/dev/null | grep -E "debian-1[23]-standard_${ARCH}\.tar\.zst" | head -n1
-}
+# Schritt 1: Template-Download (dynamisch, nicht hardcoded)
+info "Suche passendes Debian-Template für $ARCH ..."
+pveam update >/dev/null 2>&1 || warn "pveam update fehlgeschlagen – fahre mit vorhandener Liste fort."
 
-# Schritt 1: Templates im Storage-Cache?
-if template_vorhanden "$TEMPLATE"; then
-  ok "Template $TEMPLATE bereits im Cache."
+# Erst: ist bereits ein passendes Template im Cache?
+TEMPLATE="$(pveam list local 2>/dev/null \
+  | grep -E "debian-1[23]-standard[_-][0-9][^_]*_${ARCH}\.tar\.zst" \
+  | sort -rV | head -n1 | awk '{print $1}' || true)"
+if [ -n "$TEMPLATE" ]; then
+  ok "Verwendbares Template bereits im Cache: $TEMPLATE"
 else
-  info "Lade Template $TEMPLATE herunter ..."
-  pveam update >/dev/null 2>&1 || warn "pveam update fehlgeschlagen – fahre mit vorhandener Liste fort."
-  if pveam download local "$TEMPLATE" 2>/dev/null; then
-    ok "Template $TEMPLATE geladen."
-  else
-    # Schritt 2: Fallback auf ein anderes verfügbares Debian-Template (arch-gefiltert)
-    warn "Template $TEMPLATE nicht verfügbar – suche passendes $ARCH-Template ..."
-    # WICHTIG: leere Auswahl nicht per $(grep …) unter set -e abfangen (Exit 1 killt das Skript)
-    TEMPLATE="$(template_melden | sort -rV | head -n1 | awk '{print $2}' || true)"
-    TEMPLATE="${TEMPLATE:-}"
-    if [ -n "$TEMPLATE" ] && template_vorhanden "$TEMPLATE"; then
-      ok "Verwende vorhandenes Template: $TEMPLATE"
-    elif [ -n "$TEMPLATE" ] && pveam download local "$TEMPLATE" 2>/dev/null; then
-      ok "Fallback-Template geladen: $TEMPLATE"
+  # Zweit: aus pveam available suchen und herunterladen
+  TEMPLATE="$(template_suchen || true)"
+  TEMPLATE="${TEMPLATE:-}"
+  if [ -n "$TEMPLATE" ]; then
+    info "Verfügbares Template: $TEMPLATE – lade herunter ..."
+    if pveam download local "$TEMPLATE" 2>/dev/null; then
+      ok "Template geladen: $TEMPLATE"
     else
-      # Schritt 3: Letzter Versuch – Debian-Template direkt von GitHub (falls pveam spinnt)
-      warn "pveam konnte kein Debian-Template laden – versuche manuellen Download ..."
-      GITHUB_URL="https://github.com/proxmox/container-templates/raw/master/debian-13-standard_${ARCH}.tar.zst"
-      TEMPLATE="debian-13-standard_${ARCH}.tar.zst"
-      mkdir -p /var/lib/vz/template/cache 2>/dev/null || true
-      if curl -fsSL --max-time 180 "$GITHUB_URL" -o "/var/lib/vz/template/cache/$TEMPLATE" 2>/dev/null; then
-        ok "Template manuell nach /var/lib/vz/template/cache geladen."
-      else
-        err "Kein Debian-Template für $ARCH verfügbar (pveam und manueller Download fehlgeschlagen)."
-        err "Diagnose:"
-        err "  Host-Architektur: $(uname -m)"
-        err "  pveam available | grep debian:"
-        pveam available 2>/dev/null | grep -i debian | head -5 >&2 || true
-        err "  Vorhandene Templates:"
-        pveam list local 2>/dev/null | head -5 >&2 || true
-        err "Bitte prüfen: pveam update, Storage-Content 'vztmpl' aktiv?"
-        exit 1
-      fi
+      err "pveam download local $TEMPLATE ist fehlgeschlagen."
+      err "Diagnose:"
+      err "  Host-Architektur: $(uname -m)"
+      err "  pveam available | grep debian:"
+      pveam available 2>/dev/null | grep -i debian | head -5 >&2 || true
+      err "  Vorhandene Templates:"
+      pveam list local 2>/dev/null | head -5 >&2 || true
+      err "Bitte prüfen: pveam update, Storage-Content 'vztmpl' aktiv?"
+      exit 1
+    fi
+  else
+    # Dritt: manueller Download von GitHub (Fallback, falls pveam-Index fehlt)
+    warn "Kein Debian-Template in pveam available – versuche manuellen Download ..."
+    GITHUB_URL="https://github.com/proxmox/container-templates/raw/master/debian-13-standard_${ARCH}.tar.zst"
+    TEMPLATE="debian-13-standard_${ARCH}.tar.zst"
+    mkdir -p /var/lib/vz/template/cache 2>/dev/null || true
+    if curl -fsSL --max-time 180 "$GITHUB_URL" -o "/var/lib/vz/template/cache/$TEMPLATE" 2>/dev/null; then
+      ok "Template manuell nach /var/lib/vz/template/cache geladen."
+    else
+      err "Kein Debian-Template für $ARCH verfügbar (pveam und manueller Download fehlgeschlagen)."
+      err "Diagnose:"
+      err "  Host-Architektur: $(uname -m)"
+      err "  pveam available | grep debian:"
+      pveam available 2>/dev/null | grep -i debian | head -5 >&2 || true
+      err "  Vorhandene Templates:"
+      pveam list local 2>/dev/null | head -5 >&2 || true
+      err "Bitte prüfen: pveam update, Storage-Content 'vztmpl' aktiv?"
+      exit 1
     fi
   fi
 fi
