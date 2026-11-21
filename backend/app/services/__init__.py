@@ -1,0 +1,1 @@
+"""Service-Schicht (leer) – Platzhalter für weitere Module."""

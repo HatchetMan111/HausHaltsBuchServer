@@ -1,0 +1,21 @@
+[Unit]
+Description=Haushaltsbuch (FastAPI + React, lokal)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/haushaltsbuch/backend
+Environment=HAUSHALTSBUCH_APP_DIR=/opt/haushaltsbuch
+Environment=HAUSHALTSBUCH_DATA_DIR=/opt/haushaltsbuch/data
+Environment=HAUSHALTSBUCH_DB=/opt/haushaltsbuch/data/haushaltsbuch.db
+Environment=HAUSHALTSBUCH_PORT=8099
+ExecStart=/opt/haushaltsbuch/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8099
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/haushaltsbuch.log
+StandardError=append:/var/log/haushaltsbuch.log
+
+[Install]
+WantedBy=multi-user.target
