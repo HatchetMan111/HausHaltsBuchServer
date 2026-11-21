@@ -403,11 +403,23 @@ ok "Verwende Storage: $STORAGE"
 # Sicherstellen, dass der Ziel-Storage Templates (vztmpl) unterstützt.
 # Grube (Live auf ProxSmartHome): pveam download local schlägt fehl, wenn der
 # Storage kein vztmpl erlaubt – pct create scheitert dann erst viel später.
+#
+# storage.cfg hat zwei mögliche Zeilenformate:
+#   "dir local /var/lib/vz content rootdir,iso,backup,vztmpl"  (Typ Storage-Name Pfad ...)
+#   "local: /var/lib/vz,content=rootdir,iso,vztmpl"           (Name: Pfad,content=...)
+# Der Check muss BEIDE erkennen.
 storage_kann_templates() {
-  local s="$1"
+  local s="$1" cfg=/etc/pve/storage.cfg line
   # 1. Bevorzugt: Storage-Config aus /etc/pve/storage.cfg (echtes Proxmox)
-  if [ -r /etc/pve/storage.cfg ] && grep -qE "^[[:space:]]*${s}:.*content=.*vztmpl" /etc/pve/storage.cfg 2>/dev/null; then
-    return 0
+  if [ -r "$cfg" ]; then
+    # Format A: "dir local /pfad content ...vztmpl..."
+    if grep -E "^[[:space:]]*(dir|lvm|zfs|zfspool|btrfs|cephfs) +${s}[[:space:]]" "$cfg" 2>/dev/null | grep -q "content=.*vztmpl"; then
+      return 0
+    fi
+    # Format B: "local: /pfad,content=...vztmpl..."
+    if grep -E "^[[:space:]]*${s}:[[:space:]]" "$cfg" 2>/dev/null | grep -q "vztmpl"; then
+      return 0
+    fi
   fi
   # 2. Fallback: pvesm status <storage> listet vztmpl (Harness/Mock-freundlich)
   if pvesm status "$s" 2>/dev/null | grep -q "vztmpl"; then
@@ -423,11 +435,7 @@ if ! storage_kann_templates "$STORAGE"; then
     [ "$name" = "Name" ] && continue
     [ "$type" = "dir" ] || [ "$type" = "lvm" ] || [ "$type" = "zfs" ] || [ "$type" = "zfspool" ] || continue
     if echo "$rest" | grep -q "active"; then
-      # Hat der Storage laut Config vztmpl?
-      if [ -r /etc/pve/storage.cfg ] && grep -qE "^[[:space:]]*${name}:.*content=.*vztmpl" /etc/pve/storage.cfg 2>/dev/null; then
-        NEU="$name"; break
-      fi
-      if pvesm status "$name" 2>/dev/null | grep -q "vztmpl"; then
+      if storage_kann_templates "$name"; then
         NEU="$name"; break
       fi
     fi
@@ -438,7 +446,20 @@ if ! storage_kann_templates "$STORAGE"; then
     ok "Verwende Storage: $STORAGE"
   else
     err "Kein Storage mit Template-Unterstützung (vztmpl) gefunden."
-    err "Bitte in der Proxmox-GUI einen Storage mit Content 'Container-Template' aktivieren."
+    err ""
+    err "=== Diagnose: Storage-Konfiguration ==="
+    err "pvesm status:"
+    pvesm status 2>/dev/null | head -10 >&2 || true
+    err ""
+    err "/etc/pve/storage.cfg:"
+    cat /etc/pve/storage.cfg 2>/dev/null | grep -vE "^#|^$" | head -20 >&2 || true
+    err ""
+    err "=== Lösung ==="
+    err "Einer der aktiven Storages muss den Content 'Container-Template' (vztmpl) haben."
+    err "In der Proxmox-GUI: Datacenter → Storage → <Storage> → Content → 'Container-Template' anhaken."
+    err "Oder per CLI (Beispiel für local-lvm):"
+    err "  pvesm set local-lvm --content rootdir,images,vztmpl"
+    err "Danach dieses Skript erneut ausführen."
     exit 1
   fi
 fi
