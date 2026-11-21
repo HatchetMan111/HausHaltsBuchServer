@@ -409,8 +409,18 @@ ok "Verwende Storage: $STORAGE"
 # CT anlegen (unprivileged, nesting, onboot)
 info "Erstelle Container $CTID ($CT_HOSTNAME, ${CORES} vCPU, ${MEMORY} MB RAM, ${DISK} GB) ..."
 if pct status "$CTID" >/dev/null 2>&1; then
-  err "Container $CTID existiert bereits. Andere ID mit --id wählen."
-  exit 1
+  # CT existiert – vermutlich von fehlgeschlagenem Vorversuch.
+  # Wenn er nicht läuft: sauber löschen und neu anlegen (idempotent).
+  CT_STATUS="$(pct status "$CTID" 2>/dev/null | awk '{print $2}')"
+  if [ "$CT_STATUS" != "running" ]; then
+    warn "Container $CTID existiert bereits (Status: $CT_STATUS) – wird für saubere Neuinstallation gelöscht ..."
+    pct stop "$CTID" >/dev/null 2>&1 || true
+    pct destroy "$CTID" --purge 2>/dev/null || pct destroy "$CTID" 2>/dev/null || true
+    ok "Alter Container $CTID entfernt."
+  else
+    err "Container $CTID existiert bereits und läuft. Andere ID mit --id wählen oder --uninstall."
+    exit 1
+  fi
 fi
 # Template aus dem lokalen Cache beziehen (local:vztmpl/...), nicht vom Ziel-Storage.
 # WICHTIG (Live auf ProxSmartHome): pct create kennt KEIN --disk!
