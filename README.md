@@ -39,9 +39,10 @@ bash -c "$(wget -qLO - .../install/haushaltsbuch.sh)" -- --status
 bash -c "$(wget -qLO - .../install/haushaltsbuch.sh)" -- --uninstall
 ```
 
-> **Windows-/CLI-Kuriosum:** Wird das Skript direkt als `bash -c "$(wget …)" --update`
-> ausgeführt, landet `--update` in `$0`. Das Skript fängt das oben ab
-> (`$0`-Fallback) – `--update`, `--id …` usw. funktionieren in beiden Varianten.
+> **Aufruf-Kuriosum:** `bash -c "$(wget …)" --update` schickt `--update` in `$0`.
+> Das Skript fängt das ab (`$0`-Fallback) – **beide** Varianten funktionieren:
+> `… --update` und `… -- --update`. Der `--`-Trenner wird dabei entfernt.
+> Beispiel: `bash -c "$(wget -qLO - <URL>)" -- --update --id 120`
 
 ---
 

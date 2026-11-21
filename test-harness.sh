@@ -201,8 +201,14 @@ header() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 # ---------------------------------------------------------------- Tests
 header "1) Hilfe"
 run_installer --help >/dev/null
-check "Beendet mit 0" '[ ! -s /dev/stdin ] || grep -q "Einzeiler" "$WORK/output.log"'
-grep -q "raw.githubusercontent.com" "$WORK/output.log" && ok "Einzeiler im --help" || bad "Einzeiler im --help fehlt"
+check "Beendet mit 0" 'grep -q "Proxmox-Installer" "$WORK/output.log"'
+grep -q "raw.githubusercontent.com" "$WORK/output.log" && ok "Einzeiler-URL im --help" || bad "Einzeiler-URL im --help fehlt"
+
+header "1b) Options-Trenner '--' (Doku-Variante -- --update)"
+set +e; run_installer -- --help; rc=$?; set -e
+cp "$WORK/output.log" "$WORK/t1b.log"
+check "Trenner-Variante Exit 0" '[ "$rc" -eq 0 ]'
+grep -q "Proxmox-Installer" "$WORK/t1b.log" && ok "Hilfe ueber -- --help erreichbar" || bad "-- --help zeigt keine Hilfe"
 
 header "2) Status mit unbekannter ID (→ Exit != 0)"
 set +e; run_installer --status --id 999 >/dev/null; rc=$?; set -e

@@ -135,8 +135,15 @@ if [[ "${0:-}" == -* ]]; then
   set -- "$0" "$@"
 fi
 
+# Ein "nur "--"" wird aus der Dokumentation aehnlich `-- --update` entfernt,
+# damit beide Varianten funktionieren (mit und ohne Trenner).
+if [ "${1:-}" = "--" ]; then
+  shift
+fi
+
 while [ $# -gt 0 ]; do
   case "$1" in
+    --)          shift ;;
     --id)        FORCE_ID="$2"; shift 2 ;;
     --hostname)  CT_HOSTNAME="$2"; shift 2 ;;
     --cores)     CORES="$2"; shift 2 ;;
