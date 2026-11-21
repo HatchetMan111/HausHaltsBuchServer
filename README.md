@@ -20,6 +20,14 @@ Frontend: **React + Vite** (komplett neu, modern) · Backend: **Python/FastAPI +
 bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/HausHaltsBuchServer/main/install/haushaltsbuch.sh)"
 ```
 
+> **CDN-Hinweis:** GitHub Raw kann nach einem Push einige Minuten veraltet sein.
+> Wenn der Einzeiler oben noch eine alte Version lädt, nimm den Stand des
+> aktuellen Commits (funktioniert sofort, kein Cache):
+>
+> ```bash
+> bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/HausHaltsBuchServer/2ac7684/install/haushaltsbuch.sh)"
+> ```
+
 Das Skript erstellt selbstständig einen LXC (nächste freie CT-ID, Debian 13,
 unprivilegiert, nesting, `onboot=1`), installiert Node 22 + Python-Abhängigkeiten,
 baut das React-Frontend, richtet nginx (Port 8098) + systemd-Service ein und
