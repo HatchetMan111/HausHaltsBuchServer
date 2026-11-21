@@ -11,6 +11,7 @@ REPO="$HERE"
 INSTALLER="$REPO/install/haushaltsbuch.sh"
 WORK="$(mktemp -d)"
 MOCKBIN="$WORK/bin"
+export WORK
 MOCK_STATE="$WORK/pct-state"
 CALLS="$WORK/calls.log"
 INNER_SRC="$REPO/deploy/inner.sh"
@@ -109,12 +110,26 @@ cat > "$MOCKBIN/pveam" <<'MOCK'
 echo "pveam $*" >> "$MOCK_CALLS"
 case "$1" in
   list)
-    echo "local:vztmpl/debian-13-standard_amd64.tar.zst"
+    if [ "${PVEAM_FAIL_DOWNLOAD:-0}" = "1" ]; then
+      : # leerer Cache
+    else
+      echo "local:vztmpl/debian-13-standard_amd64.tar.zst"
+    fi
     ;;
   available)
-    echo "debian-13-standard_amd64.tar.zst 2024-01-01"
+    if [ "${PVEAM_FAIL_DOWNLOAD:-0}" = "1" ]; then
+      : # nichts verfügbar
+    else
+      echo "debian-13-standard_amd64.tar.zst 2024-01-01"
+    fi
     ;;
-  download|update) ;;
+  download)
+    if [ "${PVEAM_FAIL_DOWNLOAD:-0}" = "1" ]; then
+      echo "400 Parameter verification failed. template: no such template" >&2
+      exit 1
+    fi
+    ;;
+  update) ;;
 esac
 MOCK
 chmod +x "$MOCKBIN/pveam"
@@ -162,6 +177,11 @@ case "$url" in
     echo "200"
     exit 0
     ;;
+  *github.com/proxmox/container-templates*)
+    # Simuliert erfolgreichen manuellen Template-Download (Datei muss nicht existieren;
+    # der Installer prueft nur den curl-Exit-Code)
+    exit 0
+    ;;
 esac
 if [ -n "$out" ] && [ "$out" != "/dev/null" ]; then
   if [ -n "${INNER_MOCK:-}" ] && [ -f "${INNER_MOCK}" ]; then
@@ -172,6 +192,34 @@ if [ -n "$out" ] && [ "$out" != "/dev/null" ]; then
 fi
 MOCK
 chmod +x "$MOCKBIN/curl"
+
+# storage.cfg-Mock: ohne vztmpl für 'local' (Live-Fall ProxSmartHome)
+cat > "$WORK/storage.cfg" <<'EOF'
+dir local /var/lib/vz content rootdir,iso,backup,vztmpl
+dir local-lvm /var/lib/vz content rootdir,images
+EOF
+cat > "$MOCKBIN/pvesm" <<'MOCK'
+#!/bin/bash
+echo "pvesm $*" >> "$MOCK_CALLS"
+case "$1" in
+  status)
+    if [ "${2:-}" != "" ]; then
+      echo "Name ${2}"
+      echo "Type dir"
+      echo "Status active"
+      # content-Zeile aus storage.cfg-Mock (vztmpl oder nicht)
+      grep -E "^(dir|lvm|zfs) ${2} " "$WORK/storage.cfg" 2>/dev/null | sed 's/.*content //' | tr ',' '\n' | sed 's/^/  /'
+      exit 0
+    fi
+    cat <<EOF
+Name        Type  Status  Total  Used  Available
+local       dir   active  100G   10G   90G
+local-lvm   lvm   active  100G   10G   90G
+EOF
+    ;;
+esac
+MOCK
+chmod +x "$MOCKBIN/pvesm"
 
 # ---------------------------------------------------------------- Runner
 run_installer() {
@@ -185,7 +233,7 @@ run_installer() {
     # damit keine Anführungszeichen-Eskalation nötig ist.
     MOCK_CALLS="$CALLS" MOCK_STATE="$MOCK_STATE" INNER_MOCK="$INNER_MOCK" INNER_SRC="$INNER_SRC" \
       PATH="$MOCKBIN:$PATH" \
-      unshare -rm bash -c 'bash "$1" "${@:2}"' _ "$INSTALLER" "$@" \
+      unshare -rm bash -c 'mount --bind "$1" /etc/pve/storage.cfg 2>/dev/null; bash "$2" "${@:3}"' _ "$WORK/storage.cfg" "$INSTALLER" "$@" \
       > "$WORK/output.log" 2>&1 || rc=$?
   else
     # Fallback (lokale Smoke-Tests): Installer ohne Root-Prüfung ausführen
@@ -249,6 +297,22 @@ run_installer --update --id 101 >/dev/null
 rc=$?
 check "Update Exit 0" '[ "$rc" -eq 0 ]'
 grep -q "INNER-RUN" "$CALLS" && ok "inner.sh im Update ausgeführt" || bad "inner.sh im Update nicht ausgeführt"
+
+header "7) Template-Fallback (pveam download fehlt → manueller GitHub-Download)"
+PVEAM_FAIL_DOWNLOAD=1 run_installer --id 160 >/dev/null
+rc=$?
+check "Template-Fallback Exit 0" '[ "$rc" -eq 0 ]'
+grep -q "manuell" "$WORK/output.log" && ok "manueller Download versucht" || bad "manueller Download nicht versucht"
+
+header "8) Storage ohne vztmpl (muss abbrechen mit klarer Meldung)"
+# storage.cfg ohne vztmpl für local -> Installer MUSS sauber abbrechen
+cat > "$WORK/storage.cfg" <<'EOF'
+dir local /var/lib/vz content rootdir,iso,backup
+dir local-lvm /var/lib/vz content rootdir,images
+EOF
+set +e; run_installer --id 170 >/dev/null; rc=$?; set -e
+[ "$rc" -ne 0 ] && ok "Abbruch bei fehlendem vztmpl (Exit $rc)" || bad "sollte bei fehlendem vztmpl abbrechen"
+grep -q "vztmpl" "$WORK/output.log" && ok "Diagnose nennt vztmpl" || bad "Diagnose ohne vztmpl-Hinweis"
 
 header "Ergebnis"
 printf '  %d PASS, %d FAIL\n' "$pass" "$fail"

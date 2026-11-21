@@ -321,17 +321,56 @@ done
 # Template bereitstellen (arch-korrekt, Grube aus LastBook/Gladys)
 ARCH="$(host_arch)"
 TEMPLATE="debian-13-standard_${ARCH}.tar.zst"
-if ! pveam list local 2>/dev/null | grep -q "$TEMPLATE"; then
+
+template_vorhanden() {
+  # Prüft, ob ein Template lokal im Storage-Cache liegt
+  pveam list local 2>/dev/null | grep -q "$1"
+}
+
+template_melden() {
+  # Meldet ein Template in pveam available (mit/ohne Versions-Suffix)
+  pveam available 2>/dev/null | grep -E "debian-1[23]-standard_${ARCH}\.tar\.zst" | head -n1
+}
+
+# Schritt 1: Templates im Storage-Cache?
+if template_vorhanden "$TEMPLATE"; then
+  ok "Template $TEMPLATE bereits im Cache."
+else
   info "Lade Template $TEMPLATE herunter ..."
-  pveam update >/dev/null 2>&1 || true
-  pveam download local "$TEMPLATE" || {
-    # Fallback: verfügbares passendes Template suchen (ebenfalls arch-gefiltert)
+  pveam update >/dev/null 2>&1 || warn "pveam update fehlgeschlagen – fahre mit vorhandener Liste fort."
+  if pveam download local "$TEMPLATE" 2>/dev/null; then
+    ok "Template $TEMPLATE geladen."
+  else
+    # Schritt 2: Fallback auf ein anderes verfügbares Debian-Template (arch-gefiltert)
     warn "Template $TEMPLATE nicht verfügbar – suche passendes $ARCH-Template ..."
-    pveam available 2>/dev/null | grep -E "debian-1[23]-standard_${ARCH}\.tar\.zst" | sort -rV | head -n1
-    TEMPLATE="$(pveam available 2>/dev/null | grep -E "debian-1[23]-standard_${ARCH}\.tar\.zst" | sort -rV | head -n1 | awk '{print $2}')"
-    [ -n "$TEMPLATE" ] || { err "Kein passendes Debian-Template für $ARCH gefunden."; exit 1; }
-    pveam download local "$TEMPLATE"
-  }
+    # WICHTIG: leere Auswahl nicht per $(grep …) unter set -e abfangen (Exit 1 killt das Skript)
+    TEMPLATE="$(template_melden | sort -rV | head -n1 | awk '{print $2}' || true)"
+    TEMPLATE="${TEMPLATE:-}"
+    if [ -n "$TEMPLATE" ] && template_vorhanden "$TEMPLATE"; then
+      ok "Verwende vorhandenes Template: $TEMPLATE"
+    elif [ -n "$TEMPLATE" ] && pveam download local "$TEMPLATE" 2>/dev/null; then
+      ok "Fallback-Template geladen: $TEMPLATE"
+    else
+      # Schritt 3: Letzter Versuch – Debian-Template direkt von GitHub (falls pveam spinnt)
+      warn "pveam konnte kein Debian-Template laden – versuche manuellen Download ..."
+      GITHUB_URL="https://github.com/proxmox/container-templates/raw/master/debian-13-standard_${ARCH}.tar.zst"
+      TEMPLATE="debian-13-standard_${ARCH}.tar.zst"
+      mkdir -p /var/lib/vz/template/cache 2>/dev/null || true
+      if curl -fsSL --max-time 180 "$GITHUB_URL" -o "/var/lib/vz/template/cache/$TEMPLATE" 2>/dev/null; then
+        ok "Template manuell nach /var/lib/vz/template/cache geladen."
+      else
+        err "Kein Debian-Template für $ARCH verfügbar (pveam und manueller Download fehlgeschlagen)."
+        err "Diagnose:"
+        err "  Host-Architektur: $(uname -m)"
+        err "  pveam available | grep debian:"
+        pveam available 2>/dev/null | grep -i debian | head -5 >&2 || true
+        err "  Vorhandene Templates:"
+        pveam list local 2>/dev/null | head -5 >&2 || true
+        err "Bitte prüfen: pveam update, Storage-Content 'vztmpl' aktiv?"
+        exit 1
+      fi
+    fi
+  fi
 fi
 ok "Template bereit: $TEMPLATE"
 
@@ -348,12 +387,56 @@ if [ -z "$STORAGE" ]; then
 fi
 ok "Verwende Storage: $STORAGE"
 
+# Sicherstellen, dass der Ziel-Storage Templates (vztmpl) unterstützt.
+# Grube (Live auf ProxSmartHome): pveam download local schlägt fehl, wenn der
+# Storage kein vztmpl erlaubt – pct create scheitert dann erst viel später.
+storage_kann_templates() {
+  local s="$1"
+  # 1. Bevorzugt: Storage-Config aus /etc/pve/storage.cfg (echtes Proxmox)
+  if [ -r /etc/pve/storage.cfg ] && grep -qE "^[[:space:]]*${s}:.*content=.*vztmpl" /etc/pve/storage.cfg 2>/dev/null; then
+    return 0
+  fi
+  # 2. Fallback: pvesm status <storage> listet vztmpl (Harness/Mock-freundlich)
+  if pvesm status "$s" 2>/dev/null | grep -q "vztmpl"; then
+    return 0
+  fi
+  return 1
+}
+if ! storage_kann_templates "$STORAGE"; then
+  warn "Storage '$STORAGE' unterstützt keine Container-Templates (vztmpl)."
+  # Fallback: ersten Storage mit vztmpl und genügend Platz suchen
+  NEU=""
+  while read -r name type rest; do
+    [ "$name" = "Name" ] && continue
+    [ "$type" = "dir" ] || [ "$type" = "lvm" ] || [ "$type" = "zfs" ] || [ "$type" = "zfspool" ] || continue
+    if echo "$rest" | grep -q "active"; then
+      # Hat der Storage laut Config vztmpl?
+      if [ -r /etc/pve/storage.cfg ] && grep -qE "^[[:space:]]*${name}:.*content=.*vztmpl" /etc/pve/storage.cfg 2>/dev/null; then
+        NEU="$name"; break
+      fi
+      if pvesm status "$name" 2>/dev/null | grep -q "vztmpl"; then
+        NEU="$name"; break
+      fi
+    fi
+  done < <(pvesm status 2>/dev/null)
+  if [ -n "$NEU" ]; then
+    warn "Wechsle Ziel-Storage auf '$NEU' (unterstützt Templates)."
+    STORAGE="$NEU"
+    ok "Verwende Storage: $STORAGE"
+  else
+    err "Kein Storage mit Template-Unterstützung (vztmpl) gefunden."
+    err "Bitte in der Proxmox-GUI einen Storage mit Content 'Container-Template' aktivieren."
+    exit 1
+  fi
+fi
+
 # CT anlegen (unprivileged, nesting, onboot)
 info "Erstelle Container $CTID ($CT_HOSTNAME, ${CORES} vCPU, ${MEMORY} MB RAM, ${DISK} GB) ..."
 if pct status "$CTID" >/dev/null 2>&1; then
   err "Container $CTID existiert bereits. Andere ID mit --id wählen."
   exit 1
 fi
+# Template immer aus dem lokalen vztmpl-Cache beziehen
 pct create "$CTID" "local:vztmpl/$TEMPLATE" \
   --hostname "$CT_HOSTNAME" \
   --cores "$CORES" \
