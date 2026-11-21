@@ -57,6 +57,41 @@ warn()  { printf '%s[!]%s %s\n'   "$C_YELLOW" "$C_RESET" "$*"; }
 err()   { printf '%s[X]%s %s\n'   "$C_RED"    "$C_RESET" "$*" >&2; }
 header(){ printf '\n%s%s%s\n' "$C_BOLD" "$*" "$C_RESET"; }
 
+fetch_inner_script() {
+  local ziel="$1" tmp
+  tmp="$(mktemp)"
+  local url_base="$REPO_RAW/$BRANCH/deploy/inner.sh"
+  local sha_url=""
+
+  for attempt in 1 2 3; do
+    case "$attempt" in
+      1) url="$url_base?cb=$(date +%s)-$$" ;;
+      2)
+        sha_url="$(curl -fsSL --max-time 20 "https://api.github.com/repos/HatchetMan111/HausHaltsBuchServer/commits/$BRANCH" 2>/dev/null \
+          | grep -o '"sha": *"[0-9a-f]\{40\}"' | head -n1 | grep -o '[0-9a-f]\{40\}' || true)"
+        if [ -n "$sha_url" ]; then
+          url="$REPO_RAW/$sha_url/deploy/inner.sh"
+        else
+          url="$url_base"
+        fi
+        ;;
+      3) url="$url_base" ;;
+    esac
+    if curl -fsSL --max-time 60 "$url" -o "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+      mv "$tmp" "$ziel"
+      chmod +x "$ziel"
+      ok "Inner-Skript geladen (Versuch $attempt)."
+      return 0
+    fi
+    warn "Download von inner.sh fehlgeschlagen (Versuch $attempt)."
+  done
+  rm -f "$tmp"
+  err "Konnte deploy/inner.sh nicht von GitHub laden."
+  err "URL: $REPO_RAW/$BRANCH/deploy/inner.sh"
+  err "Bitte Internet-/DNS-Verbindung des Proxmox-Hosts prüfen."
+  exit 1
+}
+
 on_error() {
   local code=$? line=$1
   err "Abbruch in Zeile $line (Exit $code)."
@@ -251,7 +286,7 @@ if [ "$MODE" = "update" ]; then
   fi
   info "Aktualisiere Code + Build in Container $FOUND ..."
   # Inner-Skript frisch vom Repo ziehen und ausführen (rollenkonform, Grube 14: pipefail)
-  curl -fsSL "$REPO_RAW/$BRANCH/deploy/inner.sh" -o /tmp/haushaltsbuch-inner.sh
+  fetch_inner_script /tmp/haushaltsbuch-inner.sh
   pct push "$FOUND" /tmp/haushaltsbuch-inner.sh /root/inner.sh
   pct exec "$FOUND" -- env PORT="$WEB_PORT" APP_DIR="/opt/haushaltsbuch" \
     REPO_URL="$REPO_URL" BRANCH="$BRANCH" \
@@ -367,9 +402,12 @@ if ! pct exec "$CTID" -- getent hosts raw.githubusercontent.com >/dev/null 2>&1;
   pct set "$CTID" --nameserver "1.1.1.1 8.8.8.8" 2>/dev/null || true
 fi
 
+# Inner-Setup-Skript laden – gegen GitHub-Raw-Lag gehärtet:
+# 1. Versuch mit Cache-Buster (frisch), 2. Fallback auf den aktuellen Commit-SHA
+#    (Raw nach SHA ist nicht vom main-Cache betroffen), 3. letzter Versuch ohne.
 # Inner-Setup ausführen (Code + Build + nginx + systemd)
 info "Führe In-Container-Setup aus ..."
-curl -fsSL "$REPO_RAW/$BRANCH/deploy/inner.sh" -o /tmp/haushaltsbuch-inner.sh
+fetch_inner_script /tmp/haushaltsbuch-inner.sh
 pct push "$CTID" /tmp/haushaltsbuch-inner.sh /root/inner.sh
 pct exec "$CTID" -- env PORT="$WEB_PORT" APP_DIR="/opt/haushaltsbuch" \
   REPO_URL="$REPO_URL" BRANCH="$BRANCH" \
