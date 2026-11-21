@@ -412,13 +412,14 @@ if pct status "$CTID" >/dev/null 2>&1; then
   err "Container $CTID existiert bereits. Andere ID mit --id wählen."
   exit 1
 fi
-# Template aus dem lokalen Cache beziehen (local:vztmpl/...), nicht vom Ziel-Storage
+# Template aus dem lokalen Cache beziehen (local:vztmpl/...), nicht vom Ziel-Storage.
+# WICHTIG (Live auf ProxSmartHome): pct create kennt KEIN --disk!
+# Die Root-Disk wird über --rootfs <storage>:<größe> gesetzt (z. B. local-lvm:8).
 pct create "$CTID" "local:vztmpl/$TEMPLATE" \
   --hostname "$CT_HOSTNAME" \
   --cores "$CORES" \
   --memory "$MEMORY" \
-  --disk "0:${DISK}" \
-  --storage "$STORAGE" \
+  --rootfs "${STORAGE}:${DISK}" \
   --net0 "name=eth0,bridge=vmbr0,ip=dhcp" \
   --nameserver "1.1.1.1 8.8.8.8" \
   --onboot 1 \
