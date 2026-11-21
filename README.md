@@ -17,7 +17,7 @@ Frontend: **React + Vite** (komplett neu, modern) · Backend: **Python/FastAPI +
 ## 1. Installation (Einzeiler auf dem Proxmox-Host)
 
 ```bash
-bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/Haushaltsbuch-Proxmox/main/install/haushaltsbuch.sh)"
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/HausHaltsBuchServer/main/install/haushaltsbuch.sh)"
 ```
 
 Das Skript erstellt selbstständig einen LXC (nächste freie CT-ID, Debian 13,
@@ -105,7 +105,7 @@ Beim ersten Start ist die Datenbank leer. Zwei Wege, Daten zu sehen:
 
 ```bash
 # Update (Code + Build; DB bleibt erhalten)
-bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/Haushaltsbuch-Proxmox/main/install/haushaltsbuch.sh)" -- --update
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/HausHaltsBuchServer/main/install/haushaltsbuch.sh)" -- --update
 
 # Status inkl. URL
 bash -c "$(wget -qLO - .../install/haushaltsbuch.sh)" -- --status

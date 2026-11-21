@@ -7,7 +7,7 @@
 #  Frontend: React/Vite · Backend: Python/FastAPI · Web-UI: Port 8098
 #
 #  Einzeiler:
-#    bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/Haushaltsbuch-Proxmox/main/install/haushaltsbuch.sh)"
+#    bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/HausHaltsBuchServer/main/install/haushaltsbuch.sh)"
 #
 #  Optionen:
 #    --id <CTID>       Container-ID (Standard: nächste freie ID)
@@ -26,11 +26,11 @@ set -Eeuo pipefail
 # ----------------------------------------------------------------- Variablen
 APP_ID="haushaltsbuch"
 CT_HOSTNAME="haushaltsbuch"
-REPO_RAW="https://raw.githubusercontent.com/HatchetMan111/Haushaltsbuch-Proxmox"
-REPO_URL="https://github.com/HatchetMan111/Haushaltsbuch-Proxmox"
+REPO_RAW="https://raw.githubusercontent.com/HatchetMan111/HausHaltsBuchServer"
+REPO_URL="https://github.com/HatchetMan111/HausHaltsBuchServer"
 BRANCH="main"
 WEB_PORT=8098
-ONE_LINER='bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/Haushaltsbuch-Proxmox/main/install/haushaltsbuch.sh)"'
+ONE_LINER='bash -c "$(wget -qLO - https://raw.githubusercontent.com/HatchetMan111/HausHaltsBuchServer/main/install/haushaltsbuch.sh)"'
 
 DEFAULT_CORES=2
 DEFAULT_MEMORY=2048

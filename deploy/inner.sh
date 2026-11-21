@@ -7,7 +7,7 @@ set -Eeuo pipefail
 
 PORT="${PORT:-8098}"
 APP_DIR="${APP_DIR:-/opt/haushaltsbuch}"
-REPO_URL="${REPO_URL:-https://github.com/HatchetMan111/Haushaltsbuch-Proxmox}"
+REPO_URL="${REPO_URL:-https://github.com/HatchetMan111/HausHaltsBuchServer}"
 BRANCH="${BRANCH:-main}"
 NODE_VERSION="${NODE_VERSION:-22.11.0}"
 LOG=/var/log/haushaltsbuch.log
